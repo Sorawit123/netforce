@@ -31,13 +31,14 @@ class SaleQuotLine(Model):
         "uom_id": fields.Many2One("uom", "UoM"),
         "unit_price": fields.Decimal("Unit Price", scale=6),
         "discount": fields.Decimal("Disc %"),
+        "discount_amount": fields.Decimal("Disc Amt"),
         "tax_id": fields.Many2One("account.tax.rate", "Tax Rate"),
         "amount": fields.Decimal("Amount",readonly=True),
         "contact_id": fields.Many2One("contact", "Contact", function="_get_related", function_search="_search_related", function_context={"path": "quot_id.contact_id"}, search=True),
         "date": fields.Date("Date", function="_get_related", function_search="_search_related", function_context={"path": "quot_id.date"}, search=True),
         "user_id": fields.Many2One("base.user", "Owner", function="_get_related", function_search="_search_related", function_context={"path": "quot_id.user_id"}, search=True),
         "state": fields.Selection([("draft", "Draft"), ("waiting_approval", "Awaiting Approval"), ("approved", "Approved"), ("won", "Won"), ("lost", "Lost"), ("revised", "Revised")], "Status", function="_get_related", function_search="_search_related", function_context={"path": "quot_id.state"}, search=True),
-        "product_categs": fields.Many2Many("product.categ", "Product Categories", function="_get_related", function_context={"path": "product_id.categs"}, function_search="_search_related", search=True),
+        "product_categ_id": fields.Many2Many("product.categ", "Product Category", function="_get_related", function_context={"path": "product_id.categ_id"}, function_search="_search_related", search=True),
         "agg_amount": fields.Decimal("Total Amount", agg_function=["sum", "amount"]),
         "agg_qty": fields.Decimal("Total Order Qty", agg_function=["sum", "qty"]),
         "sequence": fields.Char("Item No."),
@@ -51,7 +52,7 @@ class SaleQuotLine(Model):
         "parent_sequence": fields.Char("Parent Sequence",function="get_is_hidden",function_multi=True),
         "est_margin_percent_input": fields.Decimal("Est. Margin % Input"),
     }
-    _order = "sequence,id"
+    _order_expression="(case when sequence ~ '^[0-9]+$' then length(sequence) end), sequence"
 
     def create(self, vals, context={}):
         id = super(SaleQuotLine, self).create(vals, context)

@@ -74,7 +74,7 @@ function rpc_execute(model,method,args,opts,cb) {
             params: params
         }),
         dataType: "json",
-        contentType: "application/x-www-form-urlencoded; charset=UTF-8",
+        contentType: "application/json;charset=UTF-8",
         success: function(data) {
             if (data.error) {
                 log("RPC ERROR",model,method,data.error.message);
@@ -436,13 +436,14 @@ Handlebars.registerHelper("loop",function(options) {
 
 Handlebars.registerHelper("field_label",function(name,options) {
     var ctx=options.hash.context;
+    var string=options.hash.string;
     if (ctx.model) {
         model_name=ctx.model.name;
     } else if (ctx.collection) {
         model_name=ctx.collection.name;
     }
     var field=get_field(model_name,name);
-    return translate(field.string);
+    return translate(string || field.string);
 });
 
 function format_date(val,options) {
@@ -1779,6 +1780,8 @@ window.NFCollection=Backbone.Collection.extend({
 
     set_vals: function(vals) { // XXX: what if different length?
         log("collection set_vals",vals);
+        var LenV = vals.length;
+        var LenM = this.models.length;
         for (var i=0; i<vals.length; i++) {
             var v=vals[i];
             var m=this.models[i];
@@ -1787,6 +1790,16 @@ window.NFCollection=Backbone.Collection.extend({
                 this.add(m);
             }
             m.set_vals(v);
+        }
+
+        /*onchange one2many */
+        if(LenM > LenV){
+            for(var n = LenV; n < LenM; n++){
+                var m = this.models[n];
+                this.remove(m);
+                var p = this.models[LenV]; /*must do each loop*/
+                this.remove(p);
+            }
         }
     },
 

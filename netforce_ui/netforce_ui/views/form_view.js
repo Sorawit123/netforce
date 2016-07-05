@@ -167,7 +167,8 @@ var FormView=NFView.extend({
                 var args=[that.options.search_condition || []];
                 var opts={
                     offset: that.options.offset||0,
-                    limit: that.options.limit||100,
+                    /*limit: that.options.limit||100,*/
+                    /*close for unlimit*/
                 };
                 nf_execute(model_name,"search",args,opts,function(err,data) {
                     if (err) throw "ERROR: "+err;
@@ -205,10 +206,6 @@ var FormView=NFView.extend({
                         that.data.end_url="#"+h2;
                     }
                     NFView.prototype.render.call(that);
-                    if (that.focus_field) {
-                        var view=that.get_field_view(that.focus_field);
-                        view.focus();
-                    }
                 });
             });
         } else {
@@ -265,8 +262,10 @@ var FormView=NFView.extend({
                 that.data.show_background=!that.data.readonly;
                 NFView.prototype.render.call(that);
                 if (that.focus_field) {
-                    var view=that.get_field_view(that.focus_field);
-                    view.focus();
+                    setTimeout(function(){
+                        var view=that.get_field_view(that.focus_field);
+                        view.focus();
+                    },1000);
                 }
             });
         }
@@ -275,6 +274,7 @@ var FormView=NFView.extend({
 
     get_field_view: function(field_name) {
         var view=this.field_views[field_name];
+        log('yes ', this.field_views, field_name);
         if (!view) {
             log(this.field_views);
             throw "Can't find view of field "+field_name;
@@ -312,6 +312,8 @@ var FormView=NFView.extend({
             var tag=$el.prop("tagName");
             if (tag=="field") {
                 var name=$el.attr("name");
+                var focus=$el.attr("focus");
+                if(focus){that.focus_field=name;}
                 var field=that.model.get_field(name);
                 if (field.type=="one2many") {
                     default_span=12;
@@ -373,6 +375,7 @@ var FormView=NFView.extend({
                     search_mode: $el.attr("search_mode"),
                     method: $el.attr("method"),
                     string: $el.attr("string"),
+                    placeholder: $el.attr("placeholder"),
                     form_layout: form_layout,
                     context: ctx
                 };
@@ -393,9 +396,11 @@ var FormView=NFView.extend({
                                         invisible: $el2.attr("invisible"),
                                         onchange: $el2.attr("onchange"),
                                         onfocus: $el2.attr("onfocus"),
+                                        focus: $el2.attr("focus"),
                                         create: $el2.attr("create"),
                                         search_mode: $el2.attr("search_mode"),
                                         scale: $el2.attr("scale"),
+                                        string: $el2.attr("string"),
                                         attrs: $el2.attr("attrs")
                                     };
                                     if ($el2.attr("readonly")) {
@@ -484,9 +489,16 @@ var FormView=NFView.extend({
                     tabs_layout: $el,
                     readonly: $el.attr("readonly")||that.readonly,
                     nobackground: $el.attr("readonly")||that.readonly,
+                    form_view: that,
                     context: context
                 };
                 var view=TabsView.make_view(opts);
+                setTimeout(function(){
+                    var focus=opts.form_view.focus_field;
+                    if(focus){
+                        that.focus_field=focus;
+                    }
+                },1000);
                 cell.append("<div id=\""+view.cid+"\" class=\"view\"></div>");
                 col+=span;
             } else if (tag=="group") {
@@ -520,6 +532,12 @@ var FormView=NFView.extend({
                 };
                 var view_cls=get_view_cls("group");
                 var view=view_cls.make_view(opts);
+                setTimeout(function(){
+                    var focus=opts.form_view.focus_field;
+                    if(focus){
+                        that.focus_field=focus;
+                    }
+                },1000);
                 cell.append("<div id=\""+view.cid+"\" class=\"view\"></div>");
                 col+=span;
             } else if (tag=="label") {
@@ -839,6 +857,8 @@ var FormView=NFView.extend({
                     click_action: $el.attr("click_action"),
                     action: $el.attr("action"),
                     readonly: $el.attr("readonly"),
+                    noadd : $el.attr("noadd"),
+                    nodelete : $el.attr("nodelete"),
                     context: context
                 };
                 var $list=$el.find("list");

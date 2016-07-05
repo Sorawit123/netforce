@@ -36,12 +36,17 @@ var TabsView=NFView.extend({ // XXX: rename to tabs
         //log("tabs_view.render");
         var that=this;
         var tabs=[];
+        var model=that.context.model;
         this.$tabs.children().each(function(i) {
             var $el=$(this);
             var tag=$el.prop("tagName");
             if (tag!="tab") throw "Expected 'tab' element";
             var perm=$el.attr("perm");
             if (perm && !check_other_permission(perm)) {
+                return;
+            }
+            var attrs=that.eval_attrs($el.attr("attrs") || "");
+            if(attrs.invisible){
                 return;
             }
             var tab={
@@ -53,6 +58,8 @@ var TabsView=NFView.extend({ // XXX: rename to tabs
             }
             tabs.push(tab);
         });
+
+        if(tabs){tabs[0]['active']=true;} // set active first tab
         this.tabs=tabs;
         this.data.tabs=tabs;
         this.data.render_form_body=function($tab,ctx) { return that.render_form_body.call(that,$tab,ctx); };
@@ -82,6 +89,10 @@ var TabsView=NFView.extend({ // XXX: rename to tabs
             var tag=$el.prop("tagName");
             if (tag=="field") {
                 var name=$el.attr("name");
+                var focus=$el.attr("focus");
+                if(focus && that.options.form_view){
+                    that.options.form_view.focus_field=name;
+                }
                 var model=context.model;
                 var field=model.get_field(name);
                 if (field && field.type=="one2many") {
@@ -157,11 +168,13 @@ var TabsView=NFView.extend({ // XXX: rename to tabs
                                     condition: $el2.attr("condition"),
                                     readonly: $el2.attr("readonly"),
                                     required: $el2.attr("required"),
+                                    focus: $el2.attr("focus"),
                                     invisible: $el2.attr("invisible"),
                                     onchange: $el2.attr("onchange"),
                                     onfocus: $el2.attr("onfocus"),
                                     create: $el2.attr("create"),
                                     search_mode: $el2.attr("search_mode"),
+                                    string: $el2.attr("string"),
                                     scale: $el2.attr("scale"),
                                     attrs: $el2.attr("attrs")
                                 };
@@ -260,6 +273,7 @@ var TabsView=NFView.extend({ // XXX: rename to tabs
                     form_layout: $el.attr("form_layout"),
                     columns: $el.attr("columns"),
                     readonly: $el.attr("readonly")||that.options.readonly,
+                    form_view: that.options.form_view,
                     context: context
                 };
                 var view_cls=get_view_cls("group");
@@ -303,6 +317,45 @@ var TabsView=NFView.extend({ // XXX: rename to tabs
             }
         });
         return body.html();
+    },
+
+    eval_attrs: function(attrs) {
+        var str=attrs;
+        //log("group.eval_attrs",this,str);
+        if (!str) return {};
+        var expr=JSON.parse(str);
+        var model=this.context.model;
+        var attrs={};
+        for (var attr in expr) {
+            var conds=expr[attr];
+            var attr_val=true;
+            for (var i in conds) {
+                var clause=conds[i];
+                var n=clause[0];
+                var op=clause[1];
+                var cons=clause[2];
+                var v=model.get(n);
+                var clause_v;
+                if (op=="=") {
+                    clause_v=v==cons;
+                } else if (op=="!=") {
+                    clause_v=v!=cons;
+                } else if (op=="in") {
+                    clause_v=_.contains(cons,v);
+                } else if (op=="not in") {
+                    clause_v=!_.contains(cons,v);
+                } else {
+                    throw "Invalid operator: "+op;
+                }
+                if (!clause_v) {
+                    attr_val=false;
+                    break;
+                }
+            }
+            attrs[attr]=attr_val;
+        }
+        //log("==>",attrs);
+        return attrs;
     },
 
     click_tab: function(e) {

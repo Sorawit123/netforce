@@ -23,6 +23,7 @@ import time
 from netforce import database
 from netforce.access import get_active_user, set_active_user
 from netforce.access import get_active_company
+from pprint import pprint
 
 
 class Move(Model):
@@ -44,6 +45,7 @@ class Move(Model):
         "cost_price": fields.Decimal("Cost Price", scale=6),  # in company currency
         "unit_price": fields.Decimal("Cost Price", scale=6),  # deprecated  change to cost_price
         "cost_amount": fields.Decimal("Cost Amount"), # in company currency
+        "cost_fixed": fields.Boolean("Cost Fixed"), # don't calculate cost
         "state": fields.Selection([("draft", "Draft"), ("pending", "Planned"), ("approved", "Approved"), ("done", "Completed"), ("voided", "Voided")], "Status", required=True),
         "stock_count_id": fields.Many2One("stock.count", "Stock Count"),
         "move_id": fields.Many2One("account.move", "Journal Entry"),
@@ -170,8 +172,8 @@ class Move(Model):
         if "qty" in vals or "state" in vals: # XXX: change this
             for obj in self.browse(ids):
                 prod_ids.append(obj.product_id.id)
-                if obj.related_id:
-                    obj.related_id.function_store() # XXX: very slow, change this
+                #if obj.related_id:
+                #    obj.related_id.function_store() # XXX: very slow, change this (DON'T UNCOMMENT)
         super().write(ids, vals, context=context)
         prod_id = vals.get("product_id")
         if prod_id:
@@ -202,6 +204,7 @@ class Move(Model):
 
     def view_stock_transaction(self, ids, context={}):
         obj = self.browse(ids[0])
+        next = {}
         if obj.picking_id:
             pick = obj.picking_id
             next=pick.view_picking()['next']
@@ -246,8 +249,8 @@ class Move(Model):
         self.write(ids,{"state":"done"},context=context)
         for obj in self.browse(ids):
             prod=obj.product_id
-            prod_ids.append(prod.id)
             pick=obj.picking_id
+            prod_ids.append(prod.id)
             vals={}
             if not obj.qty2 and prod.qty2_factor:
                 qty2=get_model("uom").convert(obj.qty,obj.uom_id.id,prod.uom_id.id)*prod.qty2_factor
@@ -334,11 +337,14 @@ class Move(Model):
         return vals
 
     def post(self,ids,context={}):
-        print("stock.move post",ids)
+        print("StockMove.post",ids)
         accounts={}
         post_date=None
         pick_ids=[]
+        n=0
         for move in self.browse(ids):
+            n+=1
+            print("post stock move %d/%d"%(n,len(ids)))
             if move.move_id:
                 raise Exception("Journal entry already create for stock movement %s"%move.number)
             date=move.date[:10]
@@ -348,15 +354,22 @@ class Move(Model):
                 if date!=post_date:
                     raise Exception("Failed to post stock movements because they have different dates")
             prod=move.product_id
-            desc="[%s] %s @ %s %s "%(prod.code,prod.name,round(move.qty,2),move.uom_id.name)
+            #desc="[%s] %s @ %s %s "%(prod.code,prod.name,round(move.qty,2),move.uom_id.name) # XXX: too many lines in JE
+            desc="Inventory costing"
             acc_from_id=move.location_from_id.account_id.id
-            if not acc_from_id:
-                acc_from_id=prod.stock_in_account_id.id
+            if move.location_from_id.type=="customer":
+                if prod.cogs_account_id:
+                    acc_from_id=prod.cogs_account_id.id
+                elif prod.categ_id and prod.categ_id.cogs_account_id:
+                    acc_from_id=prod.categ_id.cogs_account_id.id
             if not acc_from_id:
                 raise Exception("Missing input account for stock movement %s (date=%s, ref=%s, product=%s)"%(move.id,move.date,move.ref,prod.name))
             acc_to_id=move.location_to_id.account_id.id
-            if not acc_to_id:
-                acc_to_id=prod.stock_out_account_id.id
+            if move.location_to_id.type=="customer":
+                if prod.cogs_account_id:
+                    acc_to_id=prod.cogs_account_id.id
+                elif prod.categ_id and prod.categ_id.cogs_account_id:
+                    acc_to_id=prod.categ_id.cogs_account_id.id
             if not acc_to_id:
                 raise Exception("Missing output account for stock movement %s (date=%s, ref=%s, product=%s)"%(move.id,move.date,move.ref,prod.name))
             track_from_id=move.location_from_id.track_id.id
@@ -392,8 +405,12 @@ class Move(Model):
         context.update({
             'date': move.date,
         })
+        pprint(vals)
+        print("creating draft cost journal entry (%d lines)..."%len(lines))
         move_id=get_model("account.move").create(vals,context=context)
+        print("post cost journal entry")
         get_model("account.move").post([move_id])
+        print(">> finished post cost journal entry")
         get_model("stock.move").write(ids,{"move_id":move_id})
         return move_id
 

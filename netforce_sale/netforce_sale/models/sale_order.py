@@ -19,7 +19,7 @@
 # OR OTHER DEALINGS IN THE SOFTWARE.
 
 from netforce.model import Model, fields, get_model
-from netforce.utils import get_data_path
+from netforce.utils import get_data_path, roundup
 import time
 from netforce.access import get_active_user, set_active_user
 from netforce.access import get_active_company, check_permission_other, set_active_company
@@ -49,7 +49,7 @@ class SaleOrder(Model):
         "amount_total_words": fields.Char("Total Words", function="get_amount_total_words"),
         "amount_total_cur": fields.Decimal("Total", function="get_amount", function_multi=True, store=True),
         "qty_total": fields.Decimal("Total", function="get_qty_total"),
-        "currency_id": fields.Many2One("currency", "Currency", required=True),
+        "currency_id": fields.Many2One("currency", "Currency", required=True, search=True),
         "quot_id": fields.Many2One("sale.quot", "Quotation", search=True), # XXX: deprecated
         "user_id": fields.Many2One("base.user", "Owner", search=True),
         "tax_type": fields.Selection([["tax_ex", "Tax Exclusive"], ["tax_in", "Tax Inclusive"], ["no_tax", "No Tax"]], "Tax Type", required=True),
@@ -95,6 +95,7 @@ class SaleOrder(Model):
         "job_template_id": fields.Many2One("job.template", "Service Order Template"),
         "jobs": fields.One2Many("job", "related_id", "Service Orders"),
         "agg_amount_total": fields.Decimal("Total Amount", agg_function=["sum", "amount_total"]),
+        "agg_amount_total_cur": fields.Decimal("Total Amount (Converted)", agg_function=["sum", "amount_total_cur"]),
         "agg_amount_subtotal": fields.Decimal("Total Amount w/o Tax", agg_function=["sum", "amount_subtotal"]),
         "agg_est_profit": fields.Decimal("Total Estimated Profit", agg_function=["sum", "est_profit_amount"]),
         "agg_act_profit": fields.Decimal("Total Actual Profit", agg_function=["sum", "act_profit_amount"]),
@@ -255,7 +256,7 @@ class SaleOrder(Model):
             vals["amount_tax"] = tax
             vals["amount_total"] = (subtotal + tax)
             vals["amount_total_cur"] = get_model("currency").convert(
-                vals["amount_total"], obj.currency_id.id, settings.currency_id.id)
+                vals["amount_total"], obj.currency_id.id, settings.currency_id.id, rate_type="sell", date=obj.date)
             vals["amount_total_discount"] = discount
             res[obj.id] = vals
         return res
@@ -332,6 +333,7 @@ class SaleOrder(Model):
             if not line:
                 continue
             amt = (line.get("qty") or 0) * (line.get("unit_price") or 0)
+            amt = roundup(amt)
             if line.get("discount"):
                 disc = amt * line["discount"] / Decimal(100)
                 amt -= disc
@@ -356,11 +358,6 @@ class SaleOrder(Model):
 
     def onchange_product(self, context):
         data = context["data"]
-        contact_id = data.get("contact_id")
-        if contact_id:
-            contact = get_model("contact").browse(contact_id)
-        else:
-            contact = None
         path = context["path"]
         line = get_data_path(data, path, parent=True)
         prod_id = line.get("product_id")
@@ -392,7 +389,7 @@ class SaleOrder(Model):
             line["location_id"] = prod.locations[0].location_id.id
             for loc in prod.locations:
                 if loc.stock_qty:
-                    line['location_id']=prod.location_id.id
+                    line['location_id']=loc.location_id.id
                     break
         data = self.update_amounts(context)
         return data
@@ -438,6 +435,28 @@ class SaleOrder(Model):
         if prod.sale_price is not None:
             line["unit_price"] = prod.sale_price * uom.ratio / prod.uom_id.ratio
         data = self.update_amounts(context)
+
+        #update est .....
+        sale = self.browse(int(data['id']))
+        item_costs=Decimal(0)
+        for cost in sale.est_costs:
+            k=(sale.id,cost.sequence)
+            amt=cost.amount or 0
+            if cost.currency_id:
+                rate=sale.get_relative_currency_rate(cost.currency_id.id)
+                amt=amt*rate
+            item_costs+=amt
+        cost=item_costs
+        profit=line['amount']-Decimal(cost)
+        margin=Decimal(profit)*100/Decimal(line['amount']) if line['amount'] else None
+        amount={
+            "est_cost_amount": cost,
+            "est_profit_amount": profit,
+            "est_margin_percent": margin,
+        }
+        line['est_cost_amount'] = amount['est_cost_amount']
+        line['est_profit_amount'] = amount['est_profit_amount']
+        line['est_margin_percent'] = amount['est_margin_percent']
         return data
 
     def get_qty_to_deliver(self, ids):
@@ -1325,5 +1344,9 @@ class SaleOrder(Model):
             "flash": "Sale Return %s created from sales order %s" % (sale.number, obj.number),
             "order_id": sale_id,
         }
+
+    def get_template_sale_form(self, ids, context={}):
+        #obj = self.browse(ids)[0]
+        return "sale_form"
 
 SaleOrder.register()

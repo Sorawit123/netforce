@@ -19,7 +19,7 @@
 # OR OTHER DEALINGS IN THE SOFTWARE.
 
 from netforce.model import Model, fields, get_model
-from netforce.utils import get_data_path
+from netforce.utils import get_data_path, roundup
 from netforce.database import get_active_db
 import time
 import uuid
@@ -249,11 +249,12 @@ class SaleQuot(Model):
             if not line:
                 continue
             amt = (line.get("qty") or 0) * (line.get("unit_price") or 0)
+            amt = Decimal(roundup(amt))
             if line.get("discount"):
-                disc = amt * line["discount"] / Decimal(100)
+                disc = Decimal(amt) * Decimal(line["discount"]) / Decimal(100)
                 amt -= disc
-            else:
-                disc = 0
+            if line.get("discount_amount"):
+                amt -= line["discount_amount"]
             line["amount"] = amt
             #===============>>>
             k=None
@@ -307,9 +308,9 @@ class SaleQuot(Model):
             else:
                 tax = 0
             if tax_type == "tax_in":
-                data["amount_subtotal"] += line["amount"] - tax
+                data["amount_subtotal"] += Decimal(line["amount"] - tax)
             else:
-                data["amount_subtotal"] += line["amount"]
+                data["amount_subtotal"] += Decimal(line["amount"])
         data["amount_total"] = data["amount_subtotal"] + data["amount_tax"]
         return data
 
@@ -430,6 +431,7 @@ class SaleQuot(Model):
                 "uom_id": line.uom_id.id,
                 "unit_price": line.unit_price,
                 "discount": line.discount,
+                "discount_amount": line.discount_amount,
                 "tax_id": line.tax_id.id,
                 'amount': line.amount,
                 'sequence': line.sequence,
@@ -471,7 +473,7 @@ class SaleQuot(Model):
             "currency_rates": [],
         }
         for line in obj.lines:
-            if not line.qty or not line.uom_id or not line.unit_price:
+            if not line.qty:
                 continue
             prod=line.product_id
             line_vals={
@@ -479,12 +481,19 @@ class SaleQuot(Model):
                 "product_id": prod.id,
                 "description": line.description,
                 "qty": line.qty,
-                "uom_id": line.uom_id.id,
+                "uom_id": line.uom_id and line.uom_id.id or None,
                 "unit_price": line.unit_price if not line.is_hidden else 0,
                 "discount": line.discount if not line.is_hidden else 0,
+                "discount_amount": line.discount_amount if not line.is_hidden else 0,
                 "tax_id": line.tax_id.id if not line.is_hidden else None,
                 "location_id": prod.location_id.id if prod else None,
             }
+            if prod.locations:
+                line_vals["location_id"] = prod.locations[0].location_id.id
+                for loc in prod.locations:
+                    if loc.stock_qty:
+                        line_vals['location_id']=prod.location_id.id
+                        break
             sale_vals["lines"].append(("create",line_vals))
         for cost in obj.est_costs:
             cost_vals={

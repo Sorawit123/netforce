@@ -200,6 +200,9 @@ class PurchaseOrder(Model):
             if not line:
                 continue
             amt = Decimal(((line.get("qty") or 0) * (line.get("unit_price") or 0)) - (line.get("discount_amount") or 0))
+            if line.get("discount_percent"):
+                disc = amt * line["discount_percent"] / Decimal(100)
+                amt -= disc
             line["amount"] = amt
             new_cur=get_model("currency").convert(amt, int(data.get("currency_id")), settings.currency_id.id)
             line['amount_cur']=new_cur and new_cur or None
@@ -246,6 +249,9 @@ class PurchaseOrder(Model):
             line["tax_id"] = prod.purchase_tax_id.id
         if prod.location_id:
             line["location_id"] = prod.location_id.id
+        elif prod.locations:
+            line["location_id"] = prod.locations[0].location_id.id
+            #TODO
         data = self.update_amounts(context)
         return data
 
@@ -389,7 +395,7 @@ class PurchaseOrder(Model):
                 # 3. if not get from product category
                 categ=prod.categ_id
                 if categ and not purch_acc_id:
-                    purch_acc_id= categ.purchase_account_id and categ.purchase_account_id.id and None
+                    purch_acc_id= categ.purchase_account_id and categ.purchase_account_id.id or None
 
             #if not purch_acc_id:
                 #raise Exception("Missing purchase account configure for product [%s]" % prod.name)

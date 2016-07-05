@@ -67,6 +67,7 @@ class Model(object):
     _inherit = None
     _defaults = {}
     _order = None
+    _order_expression = None
     _key = None
     _name_field = None
     _code_field = None
@@ -167,7 +168,7 @@ class Model(object):
 
     def default_get(self, field_names=None, context={}, load_m2o=True):
         vals = {}
-        if field_names is None:
+        if not field_names:
             field_names = self._defaults.keys()
         for n in field_names:
             v = self._defaults.get(n)
@@ -453,6 +454,9 @@ class Model(object):
                                     cond_list.append("false")
                                 elif op == "not in":
                                     cond_list.append("true")
+                        elif op in ("not like", "not ilike"):
+                            cond_list.append("%s %s %%s" % (col, op))
+                            args.append("%" + val + "%")
                         elif op in ("like", "ilike"):
                             cond_list.append("%s %s %%s" % (col, op))
                             args.append("%" + val + "%")
@@ -620,12 +624,16 @@ class Model(object):
         q = "SELECT tbl0.id FROM " + self._table + " tbl0"
         if joins:
             q += " " + " ".join(joins)
-        if ord_joins:
-            q += " " + " ".join(ord_joins)
+        if not self._order_expression:
+            if ord_joins:
+                q += " " + " ".join(ord_joins)
         if cond:
             q += " WHERE (" + cond + ")"
-        if ord_clauses:
-            q += " ORDER BY " + ",".join(ord_clauses)
+        if not self._order_expression:
+            if ord_clauses:
+                q += " ORDER BY " + ",".join(ord_clauses)
+        else:
+            q += "ORDER BY "+self._order_expression
         if offset is not None:
             q += " OFFSET %s"
             args.append(offset)
@@ -2398,6 +2406,7 @@ class BrowseRecord(object):
                 #print("BrowseRecord call %s %s %s"%(m._name,self.id,name))
                 return f([self.id], *a, **kw)
             return call
+        db=database.get_connection()
         model_cache = self.browse_cache.setdefault(self._model, {})
         cache = model_cache.setdefault(self.id, {})
         if not name in cache:
@@ -2442,10 +2451,14 @@ class BrowseRecord(object):
                         val = r[n]
                         if val:
                             r_model, r_id = val.split(",")
-                            r_id = int(r_id)
-                            r_ids = r_model_ids[r_model]
-                            r[n] = BrowseRecord(
-                                r_model, r_id, r_ids, context=self.context, browse_cache=self.browse_cache)
+                            found=db.query("select id from "+r_model.replace(".","_")+" where id="+r_id)
+                            if not found:
+                                r[n] = BrowseRecord(None, None, [], context=self.context, browse_cache=self.browse_cache)
+                            else:
+                                r_id = int(r_id)
+                                r_ids = r_model_ids[r_model]
+                                r[n] = BrowseRecord(
+                                    r_model, r_id, r_ids, context=self.context, browse_cache=self.browse_cache)
                         else:
                             r[n] = BrowseRecord(None, None, [], context=self.context, browse_cache=self.browse_cache)
             for r in res:
@@ -2538,6 +2551,7 @@ def model_to_json(m):
         f_data["string"] = f.string
         if isinstance(f, fields.Char):
             f_data["type"] = "char"
+            f_data["size"] = f.size
         elif isinstance(f, fields.Text):
             f_data["type"] = "text"
         elif isinstance(f, fields.Float):
