@@ -482,6 +482,22 @@ function parse_date(val) {
     return val2;
 }
 
+function parse_datetime(val) {
+    if (!val) return null;
+    if (ui_params_db.date_format) {
+        var fmt=ui_params_db.date_format;
+    } else {
+        var fmt="YYYY-MM-DD HH:mm:ss";
+    }
+    var val2=moment(val,fmt).format("YYYY-MM-DD HH:mm:ss");
+    if (ui_params_db && ui_params_db.use_buddhist_date) {
+        var year=parseInt(val2.substr(0,4));
+        var year2=year-543;
+        val2=""+year2+val2.substr(4);
+    }
+    return val2;
+}
+
 function format_datetime(val) {
     if (!val) return null;
     if (ui_params_db && ui_params_db.use_buddhist_date) {
@@ -587,6 +603,8 @@ function field_value(name,context,link,target,m2o_link,click_action,show_image,s
                 var v=field.selection[i];
                 if (v[0]==val) {
                     val=v[1];
+                    val=translate(val);
+                    if(val instanceof Handlebars.SafeString) val=val.toString();
                     break;
                 }
             }
@@ -1065,6 +1083,9 @@ function exec_action_ready(action) {
         var res=confirm(action_opts.confirm);
         if (!res) return;
     }
+
+    ui_log(action.name);
+
     if (action_opts.context) {
         if (_.isString(action_opts.context)) {
             var ctx=_.extend({},global_ctx,action);
@@ -1488,6 +1509,8 @@ window.NFModel=Backbone.Model.extend({
                 if (_.isArray(v)) v=v[0];
             } else if (f.type=="one2many") {
                 if (!v) continue;
+                /*if (_.isArray(v) && v.length < 1) continue;*/
+                if (!(v instanceof NFCollection)) continue;
                 v=v.get_vals();
             }
             vals[n]=v;
@@ -2171,6 +2194,15 @@ function check_package(pkg) {
     return res;
 }
 
+function allow_import_export(ctx) {
+    if(!ctx) return true;
+    var user_id=ctx.user_id;
+    if (user_id==1) return true;
+    if (ctx.prevent_import_export) return false; //XXX cookies
+    if (check_other_permission("prevent_import_export")) return false;
+    return true;
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 /// SYNC ///////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -2513,4 +2545,20 @@ $(function() {
 function nf_get_version() {
     if (!ui_params) return null;
     return ui_params.version;
+}
+
+function ui_log(action_name) {
+    if (!action_name) return;
+    var cookies=get_cookies();
+    var keep_ui_log=cookies.keep_ui_log;
+    if (!keep_ui_log) return;
+    var action=get_action(action_name);
+    if (action.name=='ui_log') return;
+    if (nf_models && !nf_models["ui.log"]) return;
+
+    var args=[action.name, action.model, action.string || action.name];
+    log("ui.log ", args);
+    rpc_execute("ui.log","log",args,{},function(err,data) {
+        if(err) alert("ERROR "+err.message);
+    });
 }

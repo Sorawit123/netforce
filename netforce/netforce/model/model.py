@@ -94,6 +94,10 @@ class Model(object):
             model_cls._fields.update(cls._fields or {})
             model_cls._defaults = parent_cls._defaults.copy()
             model_cls._defaults.update(cls._defaults)
+            if cls._order:
+                model_cls._order=cls._order
+            if cls._order_expression:
+                model_cls._order_expression=cls._order_expression
         else:
             if not cls._name:
                 raise Exception("Missing model name in %s" % cls)
@@ -245,7 +249,7 @@ class Model(object):
         """
         except_models=['company','log','field.default']
         if not access.allow_create_transaction() and not self._transient and self._name not in except_models:
-            raise Exception("Permission denied!")
+            raise Exception("This company not allow to create transaction!")
 
     def create(self, vals, context={}):
         self.check_permission_company()
@@ -256,7 +260,10 @@ class Model(object):
             f = self._fields[n]
             if isinstance(f, fields.Char):
                 if f.password and v:
-                    vals[n] = utils.encrypt_password(v)
+                    if f.encrypt:
+                        vals[n] = utils.encrypt_password(v)
+                    else:
+                        vals[n] = v
             elif isinstance(f, fields.Json):
                 if not isinstance(v, str):
                     vals[n] = utils.json_dumps(v)
@@ -293,11 +300,17 @@ class Model(object):
                     f = self._fields[n]
                     if isinstance(f, fields.Many2One):
                         val = str(val)
-                    elif isinstance(f, fields.Float):
+                    elif isinstance(f, (fields.Float,fields.Decimal)):
                         val = str(val)
                     elif isinstance(f, fields.Char):
                         pass
                     elif isinstance(f, fields.File):
+                        pass
+                    elif isinstance(f, fields.Text):
+                        pass
+                    elif isinstance(f, fields.Boolean):
+                        pass
+                    elif isinstance(f, fields.Date):
                         pass
                     else:
                         raise Exception("Multicompany field not yet implemented: %s" % n)
@@ -672,7 +685,10 @@ class Model(object):
                     vals[n] = utils.json_dumps(v)  # XXX
             elif isinstance(f, fields.Char):
                 if f.password and v:
-                    vals[n] = utils.encrypt_password(v)
+                    if f.encrypt:
+                        vals[n] = utils.encrypt_password(v)
+                    else:
+                        vals[n] = v
         db = database.get_connection()
         if check_time:
             q = "SELECT MAX(write_time) AS write_time FROM " + self._table + \
@@ -733,11 +749,17 @@ class Model(object):
                     f = self._fields[n]
                     if isinstance(f, fields.Many2One):
                         val = str(val)
-                    elif isinstance(f, fields.Float):
+                    elif isinstance(f, (fields.Float, fields.Decimal)):
                         val = str(val)
                     elif isinstance(f, fields.Char):
                         pass
                     elif isinstance(f, fields.File):
+                        pass
+                    elif isinstance(f, fields.Text):
+                        pass
+                    elif isinstance(f, fields.Boolean):
+                        pass
+                    elif isinstance(f, fields.Date):
                         pass
                     else:
                         raise Exception("Multicompany field not yet implemented: %s" % n)
@@ -852,8 +874,12 @@ class Model(object):
             #print("<<< READ",self._name)
             return []
         if not field_names:
-            field_names = [n for n, f in self._fields.items() if not isinstance(
-                f, (fields.One2Many, fields.Many2Many)) and not (not f.store and not f.function)]
+            field_names = []
+            for n, f in self._fields.items():
+                if isinstance(f, (fields.Many2Many)):
+                    field_names.append(n)
+                elif not isinstance(f, (fields.One2Many)) and not (not f.store and not f.function):
+                    field_names.append(n)
         field_names = list(set(field_names))  # XXX
         cols = ["id"] + [n for n in field_names if self.get_field(n).store]
         q = "SELECT " + ",".join(['"%s"' % col for col in cols]) + " FROM " + self._table
@@ -930,12 +956,25 @@ class Model(object):
                         if k not in vals:
                             continue
                         v = vals[k]
-                        if v is not None and v.isnumeric():
-                        #if v is not None:
+                        if v is not None:
                             r[n] = float(v)
+                elif isinstance(f, fields.Decimal):
+                    for r in res:
+                        k = (r["id"], n)
+                        if k not in vals:
+                            continue
+                        v = vals[k]
+                        if v is not None:
+                            r[n] = Decimal(v)
                 elif isinstance(f, fields.Char):
                     pass
                 elif isinstance(f, fields.File):
+                    pass
+                elif isinstance(f, fields.Text):
+                    pass
+                elif isinstance(f, fields.Boolean):
+                    pass
+                elif isinstance(f, fields.Date):
                     pass
                 else:  # TODO: add more field types...
                     raise Exception("Multicompany field not yet implemented: %s" % n)
@@ -2095,7 +2134,7 @@ class Model(object):
                 mtime=obj.write_time
             else:
                 mtime=None
-            res.append((k,m_time))
+            res.append((k,mtime))
         return res
 
     def sync_export(self, ids, context={}):
@@ -2552,6 +2591,7 @@ def model_to_json(m):
         if isinstance(f, fields.Char):
             f_data["type"] = "char"
             f_data["size"] = f.size
+            f_data["password"] = f.password
         elif isinstance(f, fields.Text):
             f_data["type"] = "text"
         elif isinstance(f, fields.Float):

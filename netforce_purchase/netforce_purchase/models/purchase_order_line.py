@@ -18,6 +18,7 @@
 # OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
 # OR OTHER DEALINGS IN THE SOFTWARE.
 
+from decimal import Decimal
 from netforce.model import Model, fields, get_model
 
 
@@ -42,6 +43,7 @@ class PurchaseOrderLine(Model):
         "sale_id": fields.Many2One("sale.order", "Sales Order"),
         "location_id": fields.Many2One("stock.location", "Location", condition=[["type", "=", "internal"]]),
         "product_categs": fields.Many2Many("product.categ", "Product Categories", function="_get_related", function_context={"path": "product_id.categs"}, function_search="_search_related", search=True),
+        "product_categ_id": fields.Many2Many("product.categ", "Product Category", function="_get_related", function_context={"path": "product_id.categ_id"}, function_search="_search_related", search=True),
         "agg_amount": fields.Decimal("Total Amount", agg_function=["sum", "amount"]),
         "agg_qty": fields.Decimal("Total Order Qty", agg_function=["sum", "qty"]),
         "agg_amount_cur": fields.Decimal("Total Amount Cur", agg_function=["sum", "amount_cur"]),
@@ -66,6 +68,9 @@ class PurchaseOrderLine(Model):
         vals = {}
         for line in self.browse(ids):
             amt = (line.qty * line.unit_price) - (line.discount_amount or 0)
+            if line.discount_percent:
+                disc = amt*Decimal(line.discount_percent)/100
+                amt -= disc
             order = line.order_id
             vals[line.id] = {
                 "amount": round(amt,2), #XXX

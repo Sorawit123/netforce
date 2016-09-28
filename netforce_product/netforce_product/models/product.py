@@ -55,7 +55,9 @@ class Product(Model):
         "stock_in_account_id": fields.Many2One("account.account", "Stock Input Account", multi_company=True), # XXX: deprecated
         "stock_out_account_id": fields.Many2One("account.account", "Stock Output Account", multi_company=True), # XXX: deprecated
         "cogs_account_id": fields.Many2One("account.account", "Cost Of Goods Sold Account", multi_company=True),
+        "stock_account_id": fields.Many2One("account.account", "Inventory Account", multi_company=True),
         "purchase_account_id": fields.Many2One("account.account", "Purchase Account", multi_company=True),
+        "purchase_return_account_id": fields.Many2One("account.account", "Purchase Returns Account", multi_company=True),
         "purchase_tax_id": fields.Many2One("account.tax.rate", "Purchase Tax"),
         "supplier_id": fields.Many2One("contact", "Default Supplier"),  # XXX: deprecated
         "sale_account_id": fields.Many2One("account.account", "Sales Account", multi_company=True),
@@ -321,8 +323,8 @@ class Product(Model):
         purchase_duty_percent = data.get("purchase_duty_percent")
         purchase_ship_percent = data.get("purchase_ship_percent")
         if purchase_price:
-            landed_cost = purchase_price * \
-                (1 + (purchase_duty_percent or 0) / 100) * (1 + (purchase_ship_percent or 0) / 100)
+            landed_cost = Decimal(purchase_price) * \
+                Decimal(1 + (purchase_duty_percent or 0) / 100) * Decimal(1 + (purchase_ship_percent or 0) / 100)
             landed_cost_conv = landed_cost * (purchase_currency_rate or 1) 
         else:
             landed_cost = None

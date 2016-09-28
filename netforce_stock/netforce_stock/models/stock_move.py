@@ -186,8 +186,11 @@ class Move(Model):
 
     def delete(self, ids, **kw):
         prod_ids = []
+        job_ids = []
         for obj in self.browse(ids):
             prod_ids.append(obj.product_id.id)
+            if obj.related_id and obj.related_id._model == 'job':
+                job_ids.append(obj.related_id.id)
         move_ids=[]
         for obj in self.browse(ids):
             if obj.move_id:
@@ -201,6 +204,8 @@ class Move(Model):
         set_active_user(1)
         get_model("product").write(prod_ids, {"update_balance": True})
         set_active_user(user_id)
+        # update service order cost
+        get_model("job").function_store(job_ids)
 
     def view_stock_transaction(self, ids, context={}):
         obj = self.browse(ids[0])
@@ -362,6 +367,11 @@ class Move(Model):
                     acc_from_id=prod.cogs_account_id.id
                 elif prod.categ_id and prod.categ_id.cogs_account_id:
                     acc_from_id=prod.categ_id.cogs_account_id.id
+            elif move.location_from_id.type=="internal":
+                if prod.stock_account_id:
+                    acc_from_id=prod.stock_account_id.id
+                elif prod.categ_id and prod.categ_id.stock_account_id:
+                    acc_from_id=prod.categ_id.stock_account_id.id
             if not acc_from_id:
                 raise Exception("Missing input account for stock movement %s (date=%s, ref=%s, product=%s)"%(move.id,move.date,move.ref,prod.name))
             acc_to_id=move.location_to_id.account_id.id
@@ -370,6 +380,11 @@ class Move(Model):
                     acc_to_id=prod.cogs_account_id.id
                 elif prod.categ_id and prod.categ_id.cogs_account_id:
                     acc_to_id=prod.categ_id.cogs_account_id.id
+            elif move.location_to_id.type=="internal":
+                if prod.stock_account_id:
+                    acc_to_id=prod.stock_account_id.id
+                elif prod.categ_id and prod.categ_id.stock_account_id:
+                    acc_to_id=prod.categ_id.stock_account_id.id
             if not acc_to_id:
                 raise Exception("Missing output account for stock movement %s (date=%s, ref=%s, product=%s)"%(move.id,move.date,move.ref,prod.name))
             track_from_id=move.location_from_id.track_id.id

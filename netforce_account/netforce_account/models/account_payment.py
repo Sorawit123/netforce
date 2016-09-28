@@ -240,11 +240,12 @@ class Payment(Model):
                     amt=line.amount or 0
                     if tax:
                         for tax_comp in tax.components:
-                            rate=(tax_comp.rate or Decimal(0))/100
                             if tax_comp.type in ('vat'):
-                                vat += amt * rate
+                                vat += get_model("account.tax.rate").compute_tax(tax.id, amt, tax_type=obj.tax_type)
                             elif tax_comp.type in ('wht'):
-                                wht += amt * rate
+                                wht += get_model("account.tax.rate").compute_tax(tax.id, amt, tax_type=obj.tax_type, wht=True)
+                    if obj.tax_type=='tax_in':
+                        amt -= vat
                     subtotal += amt
                 elif line.type=="invoice":
                     inv = line.invoice_id
@@ -256,6 +257,9 @@ class Payment(Model):
                             cred_amt += alloc.amount
                         if inv.inv_type in ("invoice", "credit", "debit"):
                             pay_ratio = line.amount / (inv.amount_total - cred_amt)  # XXX: check this again
+                            # get adjust invoice tax
+                            # for tax in inv.taxes:
+                                # inv_vat+=tax.tax_amount
                             for invline in inv.lines:
                                 invline_amt = invline.amount * pay_ratio
                                 tax = invline.tax_id
@@ -267,6 +271,7 @@ class Payment(Model):
                                         tax.id, base_amt, when="direct_payment")
                                     for comp_id, tax_amt in tax_comps.items():
                                         comp = get_model("account.tax.component").browse(comp_id)
+                                        # if comp.type == "vat" and not inv.taxes:
                                         if comp.type == "vat":
                                             inv_vat += tax_amt
                                         elif comp.type == "wht":
@@ -354,6 +359,9 @@ class Payment(Model):
                 inv_vat = 0
                 if inv.inv_type in ("invoice", "credit", "debit"):
                     pay_ratio = line["amount"] / inv.amount_total
+                    # get adjust invoice tax
+                    # for tax in inv.taxes:
+                        # inv_vat+=tax.tax_amount
                     for invline in inv.lines:
                         invline_amt = invline.amount * pay_ratio
                         tax = invline.tax_id
@@ -365,6 +373,7 @@ class Payment(Model):
                                 tax.id, base_amt, when="direct_payment")
                             for comp_id, tax_amt in tax_comps.items():
                                 comp = get_model("account.tax.component").browse(comp_id)
+                                # if comp.type == "vat" and not inv.taxes:
                                 if comp.type == "vat":
                                     inv_vat += tax_amt
                                 elif comp.type == "wht":
@@ -578,6 +587,7 @@ class Payment(Model):
             elif line.type=="invoice":
                 inv = line.invoice_id
                 inv_taxes = {}
+                tax_vals = {}
                 if inv.inv_type in ("invoice", "credit", "debit"):
                     line_vals = {
                         "move_id": move_id,
@@ -665,6 +675,9 @@ class Payment(Model):
                                         "amount_tax": tax_amt,
                                     }
                                     inv_taxes[comp_id] = tax_vals
+                            if tax_vals:
+                                tax_vals["amount_base"] = get_model("currency").round(inv.currency_id.id, tax_vals['amount_base'])
+                                tax_vals["amount_tax"] = get_model("currency").round(inv.currency_id.id, tax_vals['amount_tax'])
                 elif inv.inv_type == "overpay":
                     line_vals = {
                         "move_id": move_id,
@@ -1276,7 +1289,7 @@ class Payment(Model):
         data = context["data"]
         path = context['path']
         line = get_data_path(data,path,parent=True)
-        if line['tax_base'] and line['tax_comp_id']:
+        if line and line.get('tax_base') and line.get('tax_comp_id'):
             tax_comp=get_model("account.tax.component").browse(line['tax_comp_id'])
             rate=(tax_comp.rate or 0)/100
             tax_base=line['tax_base'] or 0
